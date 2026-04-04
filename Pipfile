@@ -8,6 +8,7 @@ aiohttp = "*"
 beautifulsoup4 = "*"
 scrapy = "*"
 lxml = "*"
+pandas = "*"
 
 [dev-packages]
 
