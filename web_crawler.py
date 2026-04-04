@@ -66,11 +66,63 @@ async def get_website_title(html: str):
     if soup.title != None and soup.title.string != None:
         title = soup.title.string.strip()
     else:
-        h1 = soup.find("h1")
-        if h1 != None:
-            title = h1.text.strip()
+        og_title = soup.find('meta', property='og:title')
+        if og_title != None and og_title.get("content") != None:
+            title = og_title["content"].strip()
+        else:
+            h1 = soup.find("h1")
+            if h1 != None:
+                title = h1.text.strip()
 
     return title
+
+async def get_website_description(html: str):
+    soup = BeautifulSoup(html, "lxml")
+    description: str = ""
+    meta_description_tag = soup.find('meta', attrs={'name': 'description'})
+
+    if meta_description_tag != None and meta_description_tag.get("content") != None:
+        description = meta_description_tag["content"].strip()
+    else:
+        og_description = soup.find('meta', property='og:description')
+        if og_description != None and og_description.get("content") != None:
+            description = og_description["content"].strip()
+        else:
+            description = intelligently_get_website_description(html)
+
+    return description
+
+def intelligently_get_website_description(html: str):
+    max_length = 160
+    soup = BeautifulSoup(html, "lxml")
+    description: str = ""
+
+    # Priority 1: First paragraph in main content
+    main_content = soup.find('main') or soup.find("article") or soup.find("body")
+
+    if main_content != None:
+        paragraphs = main_content.find_all('p')
+        for p in paragraphs:
+            text = p.get_text().strip()
+            if len(text) > 50:
+                description = text[:max_length] + "..."
+
+    # Priority 2: First paragraph anywhere
+    first_paragraph = soup.find('p')
+    if first_paragraph != None:
+        text = first_paragraph.get_text().strip()
+        if len(text) > 50:
+            description = text[:max_length] + "..."
+
+    # Priority 3: First 50 characters of visible text
+    body_text = soup.get_text()
+    visible_text = ' '.join(body_text.split())
+    if visible_text != None:
+        if len(visible_text) > 50:
+            description = visible_text[:max_length] + "..."
+
+    return description
+
 
 async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str]):
     max_pages=50
@@ -109,9 +161,11 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                                 await queue.put(link)
 
                         title = await get_website_title(html)
+                        description = await get_website_description(html)
                         info_of_urls["url"].append(url)
                         info_of_urls["html"].append(html)
                         info_of_urls["title"].append(title)
+                        info_of_urls["description"].append(description)
 
                         crawled_count += 1
 
@@ -127,7 +181,7 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
     max_concurrent = 5
     total_timeout: int = 40
     visited = set()
-    info_of_urls = {"url": [], "title": [], "html": []}
+    info_of_urls = {"url": [], "title": [], "html": [], "description": []}
 
     # Robots policy for Wikipedia
     # User-Agent: CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)
@@ -180,7 +234,8 @@ async def main():
     data = {
         "html_path": [],
         "title": [],
-        "url": []
+        "url": [],
+        "description": []
     }
 
     delete_files_in_directory("data/websites")
@@ -192,6 +247,7 @@ async def main():
         if not result.empty:
             title = result["title"].iloc[0]
             html = result["html"].iloc[0]
+            description = result["description"].iloc[0]
 
             html_file_path = f"data/websites/website_{i}.html"
             with open(html_file_path, mode="w", encoding='utf-8') as f:
@@ -199,6 +255,7 @@ async def main():
 
             data["url"].append(url)
             data["title"].append(title)
+            data["description"].append(description)
             data["html_path"].append(html_file_path)
 
         i += 1
