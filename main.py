@@ -3,6 +3,7 @@ import aiohttp
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from urllib.robotparser import RobotFileParser
+import pandas as pd
 
 
 async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
@@ -58,7 +59,7 @@ async def extract_links(html: str, current_url: str) -> Set[str]:
 
     return links
 
-async def worker(queue: asyncio.Queue, visited: set, max_concurrent: int, headers: dict[str, str]):
+async def worker(queue: asyncio.Queue, visited: set, html_of_urls: dict, max_concurrent: int, headers: dict[str, str]):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
@@ -94,6 +95,8 @@ async def worker(queue: asyncio.Queue, visited: set, max_concurrent: int, header
                             if link not in visited:
                                 await queue.put(link)
                         
+                        html_of_urls[url] = html
+
                         crawled_count += 1
                 
             print(f"Crawled ({crawled_count}/{max_pages}): {url}")
@@ -104,10 +107,11 @@ async def worker(queue: asyncio.Queue, visited: set, max_concurrent: int, header
         except Exception as err:
             print(f"Exception: {err}")
 
-async def crawl(urls: list[str]):
+async def crawl(urls: list[str]) -> tuple[set, dict]:
     max_concurrent = 5
     total_timeout: int = 40
     visited = set()
+    html_of_urls = {}
 
     # Robots policy for Wikipedia
     # User-Agent: CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)
@@ -123,7 +127,7 @@ async def crawl(urls: list[str]):
             workers = []
 
             for _ in range(max_concurrent):
-                worker_task = asyncio.create_task(worker(queue, visited, max_concurrent, headers))
+                worker_task = asyncio.create_task(worker(queue, visited, html_of_urls, max_concurrent, headers))
                 workers.append(worker_task)
 
             await asyncio.wait_for(
@@ -141,13 +145,33 @@ async def crawl(urls: list[str]):
         except Exception as err:
             print(f"Exception: {err}")
         
-    return visited
+    return visited, html_of_urls
 
 async def main():
     urls = ["https://en.wikipedia.org/wiki/Main_Page", "https://example.com", "https://quotes.toscrape.com/page/1/", "https://quotes.toscrape.com/page/2/"]
     
-    extracted_urls = await crawl(urls)
-    print(extracted_urls)
+    extracted_urls, html_of_urls = await crawl(urls)
+
+    data = {
+        "url": [],
+        "html_path": []
+    }
+
+    i = 0
+    for url in extracted_urls:
+        data["url"].append(url)
+
+        html_file_path = f"data/websites/website_{i}.html"
+        with open(html_file_path, mode="w", encoding='utf-8') as f:
+            f.write(html_of_urls[url])
+
+        data["html_path"].append(html_file_path)
+
+        i += 1
+
+    df = pd.DataFrame(data)
+
+    df.to_csv("data/extracted_urls.csv")
 
 if __name__ == "__main__":
     asyncio.run(main(), debug=True)
