@@ -1,6 +1,6 @@
 # kool_search_engine
 
-If you hate Google search, you can always use my amazing search engine without ADs and AI.
+If you hate Google search, you can always use my amazing search engine without Ads and AI.
 
 Install dependencies
 ```
