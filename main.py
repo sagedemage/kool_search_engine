@@ -6,19 +6,36 @@ def main():
 
     df = pd.read_csv("data/extracted_urls.csv")
 
-    websites = {"title": [], "url": []}
+    websites = {"title": [], "url": [], "description": []}
 
     for i in range(len(df["title"])):
         title: str = df["title"].iloc[i]
-        if type(title) != float:
+        description: str = df["description"].iloc[i]
+        html_path: str = df["html_path"].iloc[i]
+        url: str = df["url"].iloc[i]
+        if type(title) == str:
             if search_query.lower() in title.lower():
-                url = df["url"].iloc[i]
                 websites["title"].append(title)
                 websites["url"].append(url)
+                websites["description"].append(description)
+        elif type(description) == str:
+            if search_query.lower() in description.lower():
+                websites["title"].append(title)
+                websites["url"].append(url)
+                websites["description"].append(description)
+        else:
+            with open(html_path, "r", encoding='utf-8') as f:
+                title = "Untitled"
+                html = f.read()
+                if search_query.lower() in html.lower():
+                    websites["title"].append(title)
+                    websites["url"].append(url)
+                    websites["description"].append(description)
 
-    for i in range(len(websites)):
+    for i in range(len(websites["title"])):
         print(f"Title: {websites["title"][i]}")
-        print(f"URL: {websites["url"][i]}\n")
+        print(f"URL: {websites["url"][i]}")
+        print(f"Description: {websites["description"][i]}\n")
 
 if __name__ == "__main__":
     main()
