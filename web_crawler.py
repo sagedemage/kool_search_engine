@@ -62,7 +62,7 @@ async def extract_links(html: str, current_url: str) -> set[str]:
 
 async def get_website_title(html: str):
     soup = BeautifulSoup(html, "lxml")
-    title: str = None
+    title: str = ""
     if soup.title != None and soup.title.string != None:
         title = soup.title.string.strip()
     else:
