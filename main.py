@@ -39,7 +39,7 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
     
     return rp.can_fetch(user_agent, url)
 
-async def extract_links(html: str, current_url: str) -> Set[str]:
+async def extract_links(html: str, current_url: str) -> set[str]:
     links = set()
 
     soup = BeautifulSoup(html, 'lxml')
