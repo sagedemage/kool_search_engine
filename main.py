@@ -11,12 +11,14 @@ def main():
         description: str = df["description"].iloc[i]
         html_path: str = df["html_path"].iloc[i]
         url: str = df["url"].iloc[i]
-        
+
         if type(title) == str:
             if search_query.lower() in title.lower():
                 websites["title"].append(title)
                 websites["url"].append(url)
                 websites["description"].append(description)
+        elif type(title) != str:
+            title = "Untitled"
         elif type(description) == str:
             if search_query.lower() in description.lower():
                 websites["title"].append(title)
@@ -24,7 +26,6 @@ def main():
                 websites["description"].append(description)
         else:
             with open(html_path, "r", encoding='utf-8') as f:
-                title = "Untitled"
                 html = f.read()
                 soup = BeautifulSoup(html, 'lxml')
 
