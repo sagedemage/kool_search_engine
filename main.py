@@ -11,6 +11,7 @@ def main():
         description: str = df["description"].iloc[i]
         html_path: str = df["html_path"].iloc[i]
         url: str = df["url"].iloc[i]
+        
         if type(title) == str:
             if search_query.lower() in title.lower():
                 websites["title"].append(title)
