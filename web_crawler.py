@@ -198,9 +198,7 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
     for start_url in urls:
         try:
             queue = asyncio.Queue()
-
             await queue.put(start_url)
-
             workers = []
 
             for _ in range(max_concurrent):
