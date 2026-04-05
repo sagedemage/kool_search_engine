@@ -174,7 +174,10 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
             print(f"Crawled ({crawled_count}/{max_pages}): {url}")
 
             queue.task_done()
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as err:
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"CancelledError: {err} at line {line_number}")
             break
         except Exception as err:
             tb = traceback.extract_tb(err.__traceback__)
