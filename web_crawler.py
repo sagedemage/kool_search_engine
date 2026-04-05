@@ -47,9 +47,7 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
 
 async def extract_links(html_content: str, current_url: str) -> set[str]:
     links = set()
-
     soup = BeautifulSoup(html_content, 'lxml')
-
     html_links = soup.find_all('a')
 
     for link in html_links:
