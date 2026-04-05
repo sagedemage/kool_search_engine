@@ -3,9 +3,7 @@ import pandas as pd
 
 def main():
     search_query: str = input("Search query: ")
-
     df = pd.read_csv("data/extracted_urls.csv")
-
     websites = {"title": [], "url": [], "description": []}
 
     for i in range(len(df["title"])):
