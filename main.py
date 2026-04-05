@@ -29,11 +29,12 @@ def main():
                 html = f.read()
                 soup = BeautifulSoup(html, 'lxml')
 
-                result = soup.body.find(string=search_query.lower())
-                if result is not None:
-                    websites["title"].append(title)
-                    websites["url"].append(url)
-                    websites["description"].append(description)
+                if soup.body is not None:
+                    result = soup.body.find(string=search_query.lower())
+                    if result is not None:
+                        websites["title"].append(title)
+                        websites["url"].append(url)
+                        websites["description"].append(description)
 
     for i in range(len(websites["title"])):
         print(f"Title: {websites["title"][i]}")
