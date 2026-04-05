@@ -7,7 +7,6 @@ import pandas as pd
 import os
 import traceback
 
-
 async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
     semaphore = asyncio.Semaphore(max_concurrent)
     async with semaphore:
