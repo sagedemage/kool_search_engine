@@ -270,7 +270,6 @@ async def main():
         i += 1
 
     df = pd.DataFrame(data)
-
     df.to_csv("data/extracted_urls.csv")
 
 if __name__ == "__main__":
