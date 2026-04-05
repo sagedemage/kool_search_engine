@@ -27,7 +27,10 @@ def main():
             with open(html_path, "r", encoding='utf-8') as f:
                 title = "Untitled"
                 html = f.read()
-                if search_query.lower() in html.lower():
+                soup = BeautifulSoup(html, 'lxml')
+
+                result = soup.body.find(string=search_query.lower())
+                if result != None:
                     websites["title"].append(title)
                     websites["url"].append(url)
                     websites["description"].append(description)
