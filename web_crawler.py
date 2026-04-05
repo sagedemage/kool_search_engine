@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from urllib.robotparser import RobotFileParser
 import pandas as pd
 import os
+import traceback
 
 
 async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
@@ -40,10 +41,10 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
 
     return rp.can_fetch(user_agent, url)
 
-async def extract_links(html: str, current_url: str) -> set[str]:
+async def extract_links(html_content: str, current_url: str) -> set[str]:
     links = set()
 
-    soup = BeautifulSoup(html, 'lxml')
+    soup = BeautifulSoup(html_content, 'lxml')
 
     html_links = soup.find_all('a')
 
@@ -60,8 +61,8 @@ async def extract_links(html: str, current_url: str) -> set[str]:
 
     return links
 
-async def get_website_title(html: str):
-    soup = BeautifulSoup(html, "lxml")
+async def get_website_title(html_content: str):
+    soup = BeautifulSoup(html_content, "lxml")
     title: str = ""
     if soup.title != None and soup.title.string != None:
         title = soup.title.string.strip()
@@ -76,25 +77,25 @@ async def get_website_title(html: str):
 
     return title
 
-async def get_website_description(html: str):
-    soup = BeautifulSoup(html, "lxml")
+async def get_website_description(html_content: str):
+    soup = BeautifulSoup(html_content, "lxml")
     description: str = ""
-    meta_description_tag = soup.find('meta', attrs={'name': 'description'})
+    meta_desc = soup.find('meta', attrs={'name': 'description'})
 
-    if meta_description_tag != None and meta_description_tag.get("content") != None:
-        description = meta_description_tag["content"].strip()
+    if meta_desc != None and meta_desc.get("content") != None:
+        description = meta_desc["content"].strip()
     else:
         og_description = soup.find('meta', property='og:description')
         if og_description != None and og_description.get("content") != None:
             description = og_description["content"].strip()
         else:
-            description = intelligently_get_website_description(html)
+            description = intelligently_get_website_description(html_content)
 
     return description
 
-def intelligently_get_website_description(html: str):
+def intelligently_get_website_description(html_content: str):
     max_length = 160
-    soup = BeautifulSoup(html, "lxml")
+    soup = BeautifulSoup(html_content, "lxml")
     description: str = ""
 
     # Priority 1: First paragraph in main content
@@ -175,7 +176,9 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
         except asyncio.CancelledError:
             break
         except Exception as err:
-            print(f"Exception: {err}")
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"Exception: {err} at line {line_number}")
 
 async def crawl(urls: list[str]) -> tuple[set, dict]:
     max_concurrent = 5
@@ -211,9 +214,13 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
             # Handle cancellations
             await asyncio.gather(*workers, return_exceptions=True)
         except asyncio.TimeoutError as err:
-            print(f"TimeoutError: {err}")
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"TimeoutError: {err} at line {line_number}")
         except Exception as err:
-            print(f"Exception: {err}")
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"Exception: {err} at line {line_number}")
 
     return visited, info_of_urls
 
