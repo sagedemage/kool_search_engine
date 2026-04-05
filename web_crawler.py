@@ -14,7 +14,10 @@ async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -
             async with session.get(url, timeout=10) as response:
                 html = await response.text()
                 return html
-        except Exception as e:
+        except Exception as err:
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"Exception: {err} at line {line_number}")
             return None
 
 async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -> bool:
@@ -34,8 +37,10 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
                 return False
             elif response.status == 404:
                 return True
-    except Exception as e:
-        print(f"Error fetching robots.txt: {e}")
+    except Exception as err:
+        tb = traceback.extract_tb(err.__traceback__)
+        line_number = tb[-1].lineno
+        print(f"Error fetching robots.txt: {err} at line {line_number}")
         return False
 
     return rp.can_fetch(user_agent, url)
