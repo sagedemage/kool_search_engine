@@ -126,7 +126,6 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-
 async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str]):
     max_pages=50
     crawled_count = 0
