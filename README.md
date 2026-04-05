@@ -11,3 +11,20 @@ Run program
 ```
 pipenv run python main.py
 ```
+
+Do not use reddit.com as a seed url. Google is the only search engine that can crawl Reddit.
+- source: [Only Google Can Crawl Reddit -  Michael Tsai](https://mjtsai.com/blog/2024/07/25/only-google-can-crawl-reddit/)
+
+Sample search terms:
+1. iran war
+2. trump
+3. frieren
+4. hunter x hunter
+5. vinland saga
+6. united states
+7. united kingdom
+8. middle east
+9. europe
+10. artemis
+11. breaking bad
+12. pulp fiction

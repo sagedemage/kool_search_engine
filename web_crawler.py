@@ -6,6 +6,10 @@ from urllib.robotparser import RobotFileParser
 import pandas as pd
 import os
 import traceback
+import ssl
+import certifi
+import configparser
+import sys
 
 async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -33,15 +37,15 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
             if response.status == 200:
                 content = await response.text()
                 rp.parse(content.splitlines())
-            elif response.status == 403:
-                return False
             elif response.status == 404:
+                return True
+            else:
                 return True
     except Exception as err:
         tb = traceback.extract_tb(err.__traceback__)
         line_number = tb[-1].lineno
         print(f"Error fetching robots.txt: {err} at line {line_number}")
-        return False
+        return True
 
     return rp.can_fetch(user_agent, url)
 
@@ -137,6 +141,8 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
             sock_read=request_timeout
         )
 
+    user_agent = headers["User-Agent"]
+
     while queue and crawled_count < max_pages:
         try:
             url = await queue.get()
@@ -145,11 +151,11 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                 queue.task_done()
                 continue
 
-            user_agent = headers["User-Agent"]
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
 
-            async with aiohttp.ClientSession(headers=headers, timeout=timeout) as session:
+            async with aiohttp.ClientSession(headers=headers, connector=connector, timeout=timeout) as session:
                 respect_robot_policy = await can_fetch(session, user_agent, url)
-                respect_robot_policy = True
 
                 if respect_robot_policy:
                     html = await fetch(session, url, max_concurrent)
@@ -170,6 +176,8 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                         info_of_urls["description"].append(description)
 
                         crawled_count += 1
+                else:
+                    print(f"Robot policy is not respected for {url}")
 
             print(f"Crawled ({crawled_count}/{max_pages}): {url}")
 
@@ -185,7 +193,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
             print(f"Exception: {err} at line {line_number}")
 
 async def crawl(urls: list[str]) -> tuple[set, dict]:
-    max_concurrent = 5
+    max_concurrent = 10
     total_timeout: int = 40
     visited = set()
     info_of_urls = {"url": [], "title": [], "html": [], "description": []}
@@ -199,22 +207,25 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
         try:
             queue = asyncio.Queue()
             await queue.put(start_url)
-            workers = []
 
-            for _ in range(max_concurrent):
-                worker_task = asyncio.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
-                workers.append(worker_task)
+            tasks = [asyncio.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
+                     for _ in range(max_concurrent)]
 
+            # Add a timeout to any awaitable operation
             await asyncio.wait_for(
+                # Blocks until all items in the queue have been
+                # marked as processed via task_done()
                 queue.join(),
                 timeout=total_timeout
             )
 
-            for task in workers:
+            for task in tasks:
+                # Cancel long-running tasks and
+                # tasks that are no longer needed
                 task.cancel()
 
             # Handle cancellations
-            await asyncio.gather(*workers, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         except asyncio.TimeoutError as err:
             tb = traceback.extract_tb(err.__traceback__)
             line_number = tb[-1].lineno
@@ -236,7 +247,28 @@ def delete_files_in_directory(directory_path: str):
     print(f"Deleted files in directory: {directory_path}")
 
 async def main():
-    urls = ["https://en.wikipedia.org/wiki/Main_Page", "https://example.com", "https://quotes.toscrape.com/page/1/", "https://quotes.toscrape.com/page/2/"]
+    if sys.platform == 'win32':
+        loop = asyncio.get_running_loop()
+        print(f"Event loop type: {type(loop)}")
+
+    config = configparser.ConfigParser()
+
+    ini_file = "url_seeds.ini"
+    result = config.read(ini_file)
+
+    if not result:
+        print(f"Error: Could not read {ini_file}")
+        exit(1)
+
+    config.sections()
+
+    news_urls = config['seeds:news']['urls'].split(", ")
+    link_aggregator_urls = config['seeds:link_aggregators']['urls'].split(", ")
+    anime_urls = config['seeds:anime']['urls'].split(", ")
+    movie_urls = config['seeds:movies']['urls'].split(", ")
+    encyclopedia_urls = config['seeds:online_encyclopedias']['urls'].split(", ")
+
+    urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + encyclopedia_urls
 
     extracted_urls, info_of_urls = await crawl(urls)
 
@@ -273,4 +305,8 @@ async def main():
     df.to_csv("data/extracted_urls.csv")
 
 if __name__ == "__main__":
-    asyncio.run(main(), debug=True)
+    loop_factory=None
+    if sys.platform == 'win32':
+        import winloop
+        loop_factory=winloop.new_event_loop
+    asyncio.run(main(), loop_factory=loop_factory)
