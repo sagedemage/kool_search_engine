@@ -64,15 +64,15 @@ async def extract_links(html_content: str, current_url: str) -> set[str]:
 async def get_website_title(html_content: str):
     soup = BeautifulSoup(html_content, "lxml")
     title: str = ""
-    if soup.title != None and soup.title.string != None:
+    if soup.title is not None and soup.title.string is not None:
         title = soup.title.string.strip()
     else:
         og_title = soup.find('meta', property='og:title')
-        if og_title != None and og_title.get("content") != None:
+        if og_title is not None and og_title.get("content") is not None:
             title = og_title["content"].strip()
         else:
             h1 = soup.find("h1")
-            if h1 != None:
+            if h1 is not None:
                 title = h1.text.strip()
 
     return title
@@ -82,11 +82,11 @@ async def get_website_description(html_content: str):
     description: str = ""
     meta_desc = soup.find('meta', attrs={'name': 'description'})
 
-    if meta_desc != None and meta_desc.get("content") != None:
+    if meta_desc is not None and meta_desc.get("content") is not None:
         description = meta_desc["content"].strip()
     else:
         og_description = soup.find('meta', property='og:description')
-        if og_description != None and og_description.get("content") != None:
+        if og_description is not None and og_description.get("content") is not None:
             description = og_description["content"].strip()
         else:
             description = intelligently_get_website_description(html_content)
@@ -101,7 +101,7 @@ def intelligently_get_website_description(html_content: str):
     # Priority 1: First paragraph in main content
     main_content = soup.find('main') or soup.find("article") or soup.find("body")
 
-    if main_content != None:
+    if main_content is not None:
         paragraphs = main_content.find_all('p')
         for p in paragraphs:
             text = p.get_text().strip()
@@ -110,7 +110,7 @@ def intelligently_get_website_description(html_content: str):
 
     # Priority 2: First paragraph anywhere
     first_paragraph = soup.find('p')
-    if first_paragraph != None:
+    if first_paragraph is not None:
         text = first_paragraph.get_text().strip()
         if len(text) > 50:
             description = text[:max_length] + "..."
@@ -118,7 +118,7 @@ def intelligently_get_website_description(html_content: str):
     # Priority 3: First 50 characters of visible text
     body_text = soup.get_text()
     visible_text = ' '.join(body_text.split())
-    if visible_text != None:
+    if visible_text is not None:
         if len(visible_text) > 50:
             description = visible_text[:max_length] + "..."
 

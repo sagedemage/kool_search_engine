@@ -30,7 +30,7 @@ def main():
                 soup = BeautifulSoup(html, 'lxml')
 
                 result = soup.body.find(string=search_query.lower())
-                if result != None:
+                if result is not None:
                     websites["title"].append(title)
                     websites["url"].append(url)
                     websites["description"].append(description)
