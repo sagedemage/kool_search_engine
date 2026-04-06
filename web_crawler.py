@@ -222,8 +222,12 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
 
                 if len(tasks) != 0:
                     # Handle cancellations
+                    for task in tasks:
+                        # Cancel long-running tasks and
+                        # tasks that are no longer needed
+                        task.cancel()
+
                     await asyncio.gather(*tasks, return_exceptions=True)
-                    tasks.clear()
 
             except asyncio.TimeoutError as err:
                 tb = traceback.extract_tb(err.__traceback__)
@@ -268,9 +272,9 @@ async def main():
     tv_series_urls = config['seeds:tv_series']['urls'].split(", ")
     encyclopedia_urls = config['seeds:online_encyclopedias']['urls'].split(", ")
 
-    urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
+    #urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
 
-    #urls = ["https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu"]
+    urls = ["https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu"]
 
     extracted_urls, info_of_urls = await crawl(urls)
 
