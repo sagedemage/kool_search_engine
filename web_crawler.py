@@ -205,27 +205,29 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
 
     for start_url in urls:
         try:
-            queue = asyncio.Queue()
-            await queue.put(start_url)
+            async with asyncio.TaskGroup() as tg:
 
-            tasks = [asyncio.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
-                     for _ in range(max_concurrent)]
+                queue = asyncio.Queue()
+                await queue.put(start_url)
 
-            # Add a timeout to any awaitable operation
-            await asyncio.wait_for(
-                # Blocks until all items in the queue have been
-                # marked as processed via task_done()
-                queue.join(),
-                timeout=total_timeout
-            )
+                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
+                         for _ in range(max_concurrent)]
 
-            for task in tasks:
-                # Cancel long-running tasks and
-                # tasks that are no longer needed
-                task.cancel()
+                # Add a timeout to any awaitable operation
+                await asyncio.wait_for(
+                    # Blocks until all items in the queue have been
+                    # marked as processed via task_done()
+                    queue.join(),
+                    timeout=total_timeout
+                )
 
-            # Handle cancellations
-            await asyncio.gather(*tasks, return_exceptions=True)
+                for task in tasks:
+                    # Cancel long-running tasks and
+                    # tasks that are no longer needed
+                    task.cancel()
+
+                # Handle cancellations
+                await asyncio.gather(*tasks, return_exceptions=True)
         except asyncio.TimeoutError as err:
             tb = traceback.extract_tb(err.__traceback__)
             line_number = tb[-1].lineno
@@ -266,9 +268,10 @@ async def main():
     link_aggregator_urls = config['seeds:link_aggregators']['urls'].split(", ")
     anime_urls = config['seeds:anime']['urls'].split(", ")
     movie_urls = config['seeds:movies']['urls'].split(", ")
+    tv_series_urls = config['seeds:tv_series']['urls'].split(", ")
     encyclopedia_urls = config['seeds:online_encyclopedias']['urls'].split(", ")
 
-    urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + encyclopedia_urls
+    urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
 
     extracted_urls, info_of_urls = await crawl(urls)
 
