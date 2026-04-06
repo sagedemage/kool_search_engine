@@ -49,7 +49,7 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
 
     return rp.can_fetch(user_agent, url)
 
-async def extract_links(html_content: str, current_url: str) -> set[str]:
+async def extract_links(html_content: str, current_url: str, depth: int) -> tuple[set[str], int]:
     links = set()
     soup = BeautifulSoup(html_content, 'lxml')
     html_links = soup.find_all('a')
@@ -65,7 +65,7 @@ async def extract_links(html_content: str, current_url: str) -> set[str]:
 
         links.add(absolute)
 
-    return links
+    return links, depth+1
 
 async def get_website_title(html_content: str):
     soup = BeautifulSoup(html_content, "lxml")
@@ -130,10 +130,11 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str]):
+async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str], depth: int):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
+    max_depth = 3
 
     timeout = aiohttp.ClientTimeout(
             total=request_timeout,
@@ -143,13 +144,17 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
 
     user_agent = headers["User-Agent"]
 
-    while queue and crawled_count < max_pages:
+    while queue and crawled_count < max_pages and depth <= max_depth:
         try:
             url = await queue.get()
 
             if url in visited or crawled_count >= max_pages:
                 queue.task_done()
                 continue
+
+            if depth > max_depth:
+                queue.task_done()
+                break
 
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
@@ -163,7 +168,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                     if html:
                         visited.add(url)
 
-                        new_links = await extract_links(html, url)
+                        new_links, depth = await extract_links(html, url, depth)
                         for link in new_links:
                             if link not in visited:
                                 await queue.put(link)
@@ -204,12 +209,13 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
     headers = {"User-Agent": "CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)", "Accept-Encoding": "gzip"}
 
     for start_url in urls:
+        depth = 0
         async with asyncio.TaskGroup() as tg:
             try:
                 queue = asyncio.Queue()
                 await queue.put(start_url)
 
-                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
+                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth))
                              for _ in range(max_concurrent)]
 
                 # Add a timeout to any awaitable operation
@@ -272,9 +278,7 @@ async def main():
     tv_series_urls = config['seeds:tv_series']['urls'].split(", ")
     encyclopedia_urls = config['seeds:online_encyclopedias']['urls'].split(", ")
 
-    #urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
-
-    urls = ["https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu"]
+    urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
 
     extracted_urls, info_of_urls = await crawl(urls)
 
