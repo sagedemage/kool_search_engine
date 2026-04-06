@@ -221,13 +221,11 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
                     timeout=total_timeout
                 )
 
-                for task in tasks:
-                    # Cancel long-running tasks and
-                    # tasks that are no longer needed
-                    task.cancel()
+                if len(tasks) != 0:
+                    # Handle cancellations
+                    await asyncio.gather(*tasks, return_exceptions=True)
+                    tasks.clear()
 
-                # Handle cancellations
-                await asyncio.gather(*tasks, return_exceptions=True)
         except asyncio.TimeoutError as err:
             tb = traceback.extract_tb(err.__traceback__)
             line_number = tb[-1].lineno
