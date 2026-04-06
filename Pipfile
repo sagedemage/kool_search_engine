@@ -9,6 +9,8 @@ beautifulsoup4 = "*"
 scrapy = "*"
 lxml = "*"
 pandas = "*"
+certifi = "*"
+winloop = "*"
 
 [dev-packages]
 
