@@ -204,14 +204,13 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
     headers = {"User-Agent": "CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)", "Accept-Encoding": "gzip"}
 
     for start_url in urls:
-        try:
-            async with asyncio.TaskGroup() as tg:
-
+        async with asyncio.TaskGroup() as tg:
+            try:
                 queue = asyncio.Queue()
                 await queue.put(start_url)
 
                 tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers))
-                         for _ in range(max_concurrent)]
+                             for _ in range(max_concurrent)]
 
                 # Add a timeout to any awaitable operation
                 await asyncio.wait_for(
@@ -226,14 +225,14 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
                     await asyncio.gather(*tasks, return_exceptions=True)
                     tasks.clear()
 
-        except asyncio.TimeoutError as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"TimeoutError: {err} at line {line_number}")
-        except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Exception: {err} at line {line_number}")
+            except asyncio.TimeoutError as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"TimeoutError: {err} at line {line_number}")
+            except Exception as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"Exception: {err} at line {line_number}")
 
     return visited, info_of_urls
 
@@ -270,6 +269,8 @@ async def main():
     encyclopedia_urls = config['seeds:online_encyclopedias']['urls'].split(", ")
 
     urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
+
+    #urls = ["https://www.imdb.com/chart/toptv/?ref_=hm_nv_menu"]
 
     extracted_urls, info_of_urls = await crawl(urls)
 
