@@ -18,8 +18,8 @@ Do not use reddit.com as a seed url. Google is the only search engine that can c
 Sample search terms:
 1. iran war
 2. trump
-3. us
-4. uk
+3. united states
+4. united kingdom
 5. middle east
 6. europe
 7. artemis
