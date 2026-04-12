@@ -206,12 +206,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                 respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
 
                 if respect_robot_policy:
-                    start = time.perf_counter()
                     html = await fetch(session, url)
-                    end = time.perf_counter()
-
-                    elapsed = end - start
-                    print(f"Elapsed for fetch: {elapsed*1000} miliseconds")
 
                     if html:
                         visited.add(url)
