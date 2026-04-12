@@ -206,14 +206,12 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                         visited.add(url)
 
                         new_links, depth = await extract_links(html, url, depth)
-
                         for link in new_links:
                             if link not in visited:
                                 await queue.put(link)
 
                         title = await get_website_title(html)
                         description = await get_website_description(html)
-
                         info_of_url = InfoOfUrl(url, html, title, description)
                         info_of_urls.append(info_of_url)
 
