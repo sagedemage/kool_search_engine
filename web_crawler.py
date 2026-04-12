@@ -11,6 +11,8 @@ import certifi
 import configparser
 import sys
 from dataclasses import dataclass
+import time
+from typing import Dict
 
 @dataclass(slots=True)  # slots reduces memory
 class InfoOfUrl:
@@ -32,32 +34,43 @@ async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -
             print(f"Exception: {err} at line {line_number}")
             return None
 
-async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -> bool:
-    parsed_url = urlparse(url)
-    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-    robots_url = f"{base_url}/robots.txt"
+class CheckRobotsTxt:
+    def __init__(self):
+        self._robots_cache: Dict[str, RobotFileParser] = {}
+        self._cache_lock = asyncio.Lock()
 
-    rp = RobotFileParser()
-    rp.set_url(robots_url)
+    async def can_fetch(self, session: aiohttp.ClientSession, user_agent: str, url: str) -> bool:
+        parsed_url = urlparse(url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        robots_url = f"{base_url}/robots.txt"
 
-    try:
-        async with session.get(robots_url) as response:
-            if response.status == 200:
-                content = await response.text()
-                rp.parse(content.splitlines())
-            elif response.status == 404:
-                return True
-            else:
-                return True
-    except Exception as err:
-        tb = traceback.extract_tb(err.__traceback__)
-        line_number = tb[-1].lineno
-        print(f"Error fetching robots.txt: {err} at line {line_number}")
-        return True
+        if base_url in self._robots_cache:
+            rp = self._robots_cache[base_url]
+            return rp.can_fetch(user_agent, url)
 
-    return rp.can_fetch(user_agent, url)
+        rp = RobotFileParser()
+        rp.set_url(robots_url)
+
+        try:
+            async with session.get(robots_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    rp.parse(content.splitlines())
+                elif response.status == 404:
+                    return True
+                else:
+                    return True
+        except Exception as err:
+            tb = traceback.extract_tb(err.__traceback__)
+            line_number = tb[-1].lineno
+            print(f"Error fetching robots.txt: {err} at line {line_number}")
+            return True
+
+        self._robots_cache[base_url] = rp
+        return rp.can_fetch(user_agent, url)
 
 async def extract_links(html_content: str, current_url: str, depth: int) -> tuple[set[str], int]:
+    # Slow function
     links = set()
     soup = BeautifulSoup(html_content, "lxml")
     html_links = soup.find_all('a')
@@ -76,6 +89,7 @@ async def extract_links(html_content: str, current_url: str, depth: int) -> tupl
     return links, depth+1
 
 async def get_website_title(html_content: str):
+    # Slow function
     soup = BeautifulSoup(html_content, "lxml")
     title: str = ""
     if soup.title is not None and soup.title.string is not None:
@@ -92,6 +106,7 @@ async def get_website_title(html_content: str):
     return title
 
 async def get_website_description(html_content: str):
+    # Slow function
     soup = BeautifulSoup(html_content, "lxml")
     description: str = ""
     meta_desc = soup.find('meta', attrs={'name': 'description'})
@@ -138,7 +153,7 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int):
+async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int, check_robots_txt: CheckRobotsTxt):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
@@ -168,21 +183,48 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                     queue.task_done()
                     break
 
-                respect_robot_policy = await can_fetch(session, user_agent, url)
+                start = time.perf_counter()
+                respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
+                end = time.perf_counter()
+
+                elapsed = end - start
+                print(f"Elapsed for can_fetch: {elapsed*1000} miliseconds")
 
                 if respect_robot_policy:
+                    start = time.perf_counter()
                     html = await fetch(session, url, max_concurrent)
+                    end = time.perf_counter()
+
+                    elapsed = end - start
+                    print(f"Elapsed for fetch: {elapsed*1000} miliseconds")
 
                     if html:
                         visited.add(url)
 
+                        start = time.perf_counter()
                         new_links, depth = await extract_links(html, url, depth)
+                        end = time.perf_counter()
+
+                        elapsed = end - start
+                        print(f"Elapsed for extract_links: {elapsed*1000} miliseconds")
                         for link in new_links:
                             if link not in visited:
                                 await queue.put(link)
 
+                        start = time.perf_counter()
                         title = await get_website_title(html)
+                        end = time.perf_counter()
+
+                        elapsed = end - start
+                        print(f"Elapsed for get_website_title: {elapsed*1000} miliseconds")
+
+                        start = time.perf_counter()
                         description = await get_website_description(html)
+                        end = time.perf_counter()
+
+                        elapsed = end - start
+                        print(f"Elapsed for get_website_description: {elapsed*1000} miliseconds")
+                        print("")
 
                         info_of_url = InfoOfUrl(url, html, title, description)
                         info_of_urls.append(info_of_url)
@@ -204,7 +246,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                 line_number = tb[-1].lineno
                 print(f"Exception: {err} at line {line_number}")
 
-async def crawl(urls: list[str]) -> tuple[set, list[InfoOfUrl]]:
+async def crawl(urls: list[str], check_robots_txt: CheckRobotsTxt) -> tuple[set, list[InfoOfUrl]]:
     max_concurrent = 10
     total_timeout: int = 40
     visited = set()
@@ -222,7 +264,7 @@ async def crawl(urls: list[str]) -> tuple[set, list[InfoOfUrl]]:
                 queue = asyncio.Queue()
                 await queue.put(start_url)
 
-                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth))
+                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth, check_robots_txt))
                              for _ in range(max_concurrent)]
 
                 # Add a timeout to any awaitable operation
@@ -294,7 +336,9 @@ async def main():
 
     urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
 
-    extracted_urls, info_of_urls = await crawl(urls)
+    check_robots_txt = CheckRobotsTxt()
+
+    extracted_urls, info_of_urls = await crawl(urls, check_robots_txt)
 
     data = {
         "html_path": [],
