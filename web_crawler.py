@@ -144,22 +144,22 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
 
     user_agent = headers["User-Agent"]
 
-    while queue and crawled_count < max_pages and depth <= max_depth:
-        try:
-            url = await queue.get()
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
 
-            if url in visited or crawled_count >= max_pages:
-                queue.task_done()
-                continue
+    async with aiohttp.ClientSession(headers=headers, connector=connector, timeout=timeout) as session:
+        while queue and crawled_count < max_pages and depth <= max_depth:
+            try:
+                url = await queue.get()
 
-            if depth > max_depth:
-                queue.task_done()
-                break
+                if url in visited or crawled_count >= max_pages:
+                    queue.task_done()
+                    continue
 
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
-            connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
+                if depth > max_depth:
+                    queue.task_done()
+                    break
 
-            async with aiohttp.ClientSession(headers=headers, connector=connector, timeout=timeout) as session:
                 respect_robot_policy = await can_fetch(session, user_agent, url)
 
                 if respect_robot_policy:
@@ -184,18 +184,18 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                 else:
                     print(f"Robot policy is not respected for {url}")
 
-            print(f"Crawled ({crawled_count}/{max_pages}): {url}")
+                print(f"Crawled ({crawled_count}/{max_pages}): {url}")
 
-            queue.task_done()
-        except asyncio.CancelledError as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"CancelledError: {err} at line {line_number}")
-            break
-        except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Exception: {err} at line {line_number}")
+                queue.task_done()
+            except asyncio.CancelledError as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"CancelledError: {err} at line {line_number}")
+                break
+            except Exception as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"Exception: {err} at line {line_number}")
 
 async def crawl(urls: list[str]) -> tuple[set, dict]:
     max_concurrent = 10
