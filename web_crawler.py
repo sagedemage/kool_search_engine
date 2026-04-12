@@ -211,30 +211,14 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                     if html:
                         visited.add(url)
 
-                        start = time.perf_counter()
                         new_links, depth = await extract_links(html, url, depth)
-                        end = time.perf_counter()
 
-                        elapsed = end - start
-                        print(f"Elapsed for extract_links: {elapsed*1000} miliseconds")
                         for link in new_links:
                             if link not in visited:
                                 await queue.put(link)
 
-                        start = time.perf_counter()
                         title = await get_website_title(html)
-                        end = time.perf_counter()
-
-                        elapsed = end - start
-                        print(f"Elapsed for get_website_title: {elapsed*1000} miliseconds")
-
-                        start = time.perf_counter()
                         description = await get_website_description(html)
-                        end = time.perf_counter()
-
-                        elapsed = end - start
-                        print(f"Elapsed for get_website_description: {elapsed*1000} miliseconds")
-                        print("")
 
                         info_of_url = InfoOfUrl(url, html, title, description)
                         info_of_urls.append(info_of_url)
