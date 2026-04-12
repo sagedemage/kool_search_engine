@@ -10,6 +10,14 @@ import ssl
 import certifi
 import configparser
 import sys
+from dataclasses import dataclass
+
+@dataclass(slots=True)  # slots reduces memory
+class InfoOfUrl:
+    url: str
+    html: str
+    title: str = ""
+    description: str = ""
 
 async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
     semaphore = asyncio.Semaphore(max_concurrent)
@@ -51,7 +59,7 @@ async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -
 
 async def extract_links(html_content: str, current_url: str, depth: int) -> tuple[set[str], int]:
     links = set()
-    soup = BeautifulSoup(html_content, 'lxml')
+    soup = BeautifulSoup(html_content, "lxml")
     html_links = soup.find_all('a')
 
     for link in html_links:
@@ -130,7 +138,7 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str], depth: int):
+async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
@@ -175,10 +183,9 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
 
                         title = await get_website_title(html)
                         description = await get_website_description(html)
-                        info_of_urls["url"].append(url)
-                        info_of_urls["html"].append(html)
-                        info_of_urls["title"].append(title)
-                        info_of_urls["description"].append(description)
+
+                        info_of_url = InfoOfUrl(url, html, title, description)
+                        info_of_urls.append(info_of_url)
 
                         crawled_count += 1
                 else:
@@ -197,11 +204,11 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
                 line_number = tb[-1].lineno
                 print(f"Exception: {err} at line {line_number}")
 
-async def crawl(urls: list[str]) -> tuple[set, dict]:
+async def crawl(urls: list[str]) -> tuple[set, list[InfoOfUrl]]:
     max_concurrent = 10
     total_timeout: int = 40
     visited = set()
-    info_of_urls = {"url": [], "title": [], "html": [], "description": []}
+    info_of_urls = []
 
     # Robots policy for Wikipedia
     # User-Agent: CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)
@@ -255,6 +262,13 @@ def delete_files_in_directory(directory_path: str):
 
     print(f"Deleted files in directory: {directory_path}")
 
+def url_in_list_of_info_urls(url: str, info_of_urls: list[InfoOfUrl]) -> tuple[bool, int]:
+    for i in range(len(info_of_urls)):
+        if url == info_of_urls[i].url:
+            return True, i
+
+    return False, None
+
 async def main():
     if sys.platform == 'win32':
         loop = asyncio.get_running_loop()
@@ -292,13 +306,12 @@ async def main():
     delete_files_in_directory("data/websites")
 
     i = 0
-    info_of_urls_df = pd.DataFrame(info_of_urls)
     for url in extracted_urls:
-        result = info_of_urls_df.query(f"url == \"{url}\"")
-        if not result.empty:
-            title = result["title"].iloc[0]
-            html = result["html"].iloc[0]
-            description = result["description"].iloc[0]
+        result, j = url_in_list_of_info_urls(url, info_of_urls)
+        if result:
+            title = info_of_urls[j].title
+            html = info_of_urls[j].html
+            description = info_of_urls[j].description
 
             html_file_path = f"data/websites/website_{i}.html"
             with open(html_file_path, mode="w", encoding='utf-8') as f:
