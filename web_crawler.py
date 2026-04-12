@@ -11,7 +11,6 @@ import certifi
 import configparser
 import sys
 from dataclasses import dataclass
-import time
 from typing import Dict
 
 @dataclass(slots=True)  # slots reduces memory
@@ -75,7 +74,6 @@ class CheckRobotsTxt:
         return rp.can_fetch(user_agent, url)
 
 async def extract_links(html_content: str, current_url: str, depth: int) -> tuple[set[str], int]:
-    # Slow function
     links = set()
     soup = BeautifulSoup(html_content, "lxml")
     html_links = soup.find_all('a')
@@ -94,7 +92,6 @@ async def extract_links(html_content: str, current_url: str, depth: int) -> tupl
     return links, depth+1
 
 async def get_website_title(html_content: str):
-    # Slow function
     soup = BeautifulSoup(html_content, "lxml")
     title: str = ""
     if soup.title is not None and soup.title.string is not None:
@@ -111,7 +108,6 @@ async def get_website_title(html_content: str):
     return title
 
 async def get_website_description(html_content: str):
-    # Slow function
     soup = BeautifulSoup(html_content, "lxml")
     description: str = ""
     meta_desc = soup.find('meta', attrs={'name': 'description'})
