@@ -10,48 +10,70 @@ import ssl
 import certifi
 import configparser
 import sys
+from dataclasses import dataclass
+from typing import Dict
 
-async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
-    semaphore = asyncio.Semaphore(max_concurrent)
-    async with semaphore:
-        try:
-            async with session.get(url, timeout=10) as response:
-                html = await response.text()
-                return html
-        except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Exception: {err} at line {line_number}")
-            return None
+@dataclass(slots=True)  # slots reduces memory
+class InfoOfUrl:
+    url: str
+    html: str
+    title: str = ""
+    description: str = ""
 
-async def can_fetch(session: aiohttp.ClientSession, user_agent: str, url: str) -> bool:
-    parsed_url = urlparse(url)
-    base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
-    robots_url = f"{base_url}/robots.txt"
-
-    rp = RobotFileParser()
-    rp.set_url(robots_url)
-
+async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     try:
-        async with session.get(robots_url) as response:
-            if response.status == 200:
-                content = await response.text()
-                rp.parse(content.splitlines())
-            elif response.status == 404:
-                return True
-            else:
-                return True
+        async with session.get(url) as response:
+            if response.status != 200:
+                print(f"Error: response: {response.status} for {url}")
+                return None
+            html = await response.text()
+            return html
+    except TimeoutError as err:
+        print(f"TimeoutError: {err}")
+        return None
+    except aiohttp.ClientError as err:
+        print(f"ClientError: {err}")
+        return None
     except Exception as err:
-        tb = traceback.extract_tb(err.__traceback__)
-        line_number = tb[-1].lineno
-        print(f"Error fetching robots.txt: {err} at line {line_number}")
-        return True
+        print(f"Exception: {err}")
+        return None
 
-    return rp.can_fetch(user_agent, url)
+class CheckRobotsTxt:
+    def __init__(self):
+        self._robots_cache: Dict[str, RobotFileParser] = {}
+        self._cache_lock = asyncio.Lock()
+
+    async def can_fetch(self, session: aiohttp.ClientSession, user_agent: str, url: str) -> bool:
+        parsed_url = urlparse(url)
+        base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+        robots_url = f"{base_url}/robots.txt"
+
+        if base_url in self._robots_cache:
+            rp = self._robots_cache[base_url]
+            return rp.can_fetch(user_agent, url)
+
+        rp = RobotFileParser()
+        rp.set_url(robots_url)
+
+        try:
+            async with session.get(robots_url) as response:
+                if response.status == 200:
+                    content = await response.text()
+                    rp.parse(content.splitlines())
+                elif response.status == 404:
+                    return True
+                else:
+                    return True
+        except Exception as err:
+            print(f"Error fetching robots.txt: {err}")
+            return True
+
+        self._robots_cache[base_url] = rp
+        return rp.can_fetch(user_agent, url)
 
 async def extract_links(html_content: str, current_url: str, depth: int) -> tuple[set[str], int]:
     links = set()
-    soup = BeautifulSoup(html_content, 'lxml')
+    soup = BeautifulSoup(html_content, "lxml")
     html_links = soup.find_all('a')
 
     for link in html_links:
@@ -130,7 +152,7 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_concurrent: int, headers: dict[str, str], depth: int):
+async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int, check_robots_txt: CheckRobotsTxt):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
@@ -144,26 +166,41 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
 
     user_agent = headers["User-Agent"]
 
-    while queue and crawled_count < max_pages and depth <= max_depth:
-        try:
-            url = await queue.get()
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-            if url in visited or crawled_count >= max_pages:
-                queue.task_done()
-                continue
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrent,
+        limit_per_host=max_concurrent,
+        ttl_dns_cache=300, # DNS cache for 5 minutes
+        enable_cleanup_closed=True,
+        ssl=ssl_context
+        )
 
-            if depth > max_depth:
-                queue.task_done()
-                break
+    session = aiohttp.ClientSession(
+        headers=headers,
+        connector=connector,
+        timeout=timeout,
+        auto_decompress=True,
+        raise_for_status=False # Avoid exception overhead
+    )
 
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
-            connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
+    async with session:
+        while queue and crawled_count < max_pages and depth <= max_depth:
+            try:
+                url = await queue.get()
 
-            async with aiohttp.ClientSession(headers=headers, connector=connector, timeout=timeout) as session:
-                respect_robot_policy = await can_fetch(session, user_agent, url)
+                if url in visited or crawled_count >= max_pages:
+                    queue.task_done()
+                    continue
+
+                if depth > max_depth:
+                    queue.task_done()
+                    break
+
+                respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
 
                 if respect_robot_policy:
-                    html = await fetch(session, url, max_concurrent)
+                    html = await fetch(session, url)
 
                     if html:
                         visited.add(url)
@@ -175,33 +212,31 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: dict, max_con
 
                         title = await get_website_title(html)
                         description = await get_website_description(html)
-                        info_of_urls["url"].append(url)
-                        info_of_urls["html"].append(html)
-                        info_of_urls["title"].append(title)
-                        info_of_urls["description"].append(description)
+                        info_of_url = InfoOfUrl(url, html, title, description)
+                        info_of_urls.append(info_of_url)
 
                         crawled_count += 1
                 else:
                     print(f"Robot policy is not respected for {url}")
 
-            print(f"Crawled ({crawled_count}/{max_pages}): {url}")
+                print(f"Crawled ({crawled_count}/{max_pages}): {url}")
 
-            queue.task_done()
-        except asyncio.CancelledError as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"CancelledError: {err} at line {line_number}")
-            break
-        except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Exception: {err} at line {line_number}")
+                queue.task_done()
+            except asyncio.CancelledError as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"CancelledError: {err} at line {line_number}")
+                break
+            except Exception as err:
+                tb = traceback.extract_tb(err.__traceback__)
+                line_number = tb[-1].lineno
+                print(f"Exception: {err} at line {line_number}")
 
-async def crawl(urls: list[str]) -> tuple[set, dict]:
+async def crawl(urls: list[str], check_robots_txt: CheckRobotsTxt) -> tuple[set, list[InfoOfUrl]]:
     max_concurrent = 10
     total_timeout: int = 40
     visited = set()
-    info_of_urls = {"url": [], "title": [], "html": [], "description": []}
+    info_of_urls = []
 
     # Robots policy for Wikipedia
     # User-Agent: CoolBot/0.0 (https://example.org/coolbot/; coolbot@example.org)
@@ -215,7 +250,7 @@ async def crawl(urls: list[str]) -> tuple[set, dict]:
                 queue = asyncio.Queue()
                 await queue.put(start_url)
 
-                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth))
+                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth, check_robots_txt))
                              for _ in range(max_concurrent)]
 
                 # Add a timeout to any awaitable operation
@@ -255,6 +290,13 @@ def delete_files_in_directory(directory_path: str):
 
     print(f"Deleted files in directory: {directory_path}")
 
+def url_in_list_of_info_urls(url: str, info_of_urls: list[InfoOfUrl]) -> tuple[bool, int]:
+    for i in range(len(info_of_urls)):
+        if url == info_of_urls[i].url:
+            return True, i
+
+    return False, None
+
 async def main():
     if sys.platform == 'win32':
         loop = asyncio.get_running_loop()
@@ -280,7 +322,9 @@ async def main():
 
     urls = news_urls + link_aggregator_urls + anime_urls + movie_urls + tv_series_urls + encyclopedia_urls
 
-    extracted_urls, info_of_urls = await crawl(urls)
+    check_robots_txt = CheckRobotsTxt()
+
+    extracted_urls, info_of_urls = await crawl(urls, check_robots_txt)
 
     data = {
         "html_path": [],
@@ -292,13 +336,12 @@ async def main():
     delete_files_in_directory("data/websites")
 
     i = 0
-    info_of_urls_df = pd.DataFrame(info_of_urls)
     for url in extracted_urls:
-        result = info_of_urls_df.query(f"url == \"{url}\"")
-        if not result.empty:
-            title = result["title"].iloc[0]
-            html = result["html"].iloc[0]
-            description = result["description"].iloc[0]
+        result, j = url_in_list_of_info_urls(url, info_of_urls)
+        if result:
+            title = info_of_urls[j].title
+            html = info_of_urls[j].html
+            description = info_of_urls[j].description
 
             html_file_path = f"data/websites/website_{i}.html"
             with open(html_file_path, mode="w", encoding='utf-8') as f:
