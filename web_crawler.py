@@ -65,9 +65,7 @@ class CheckRobotsTxt:
                 else:
                     return True
         except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Error fetching robots.txt: {err} at line {line_number}")
+            print(f"Error fetching robots.txt: {err}")
             return True
 
         self._robots_cache[base_url] = rp
