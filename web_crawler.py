@@ -21,18 +21,23 @@ class InfoOfUrl:
     title: str = ""
     description: str = ""
 
-async def fetch(session: aiohttp.ClientSession, url: str, max_concurrent: int) -> str:
-    semaphore = asyncio.Semaphore(max_concurrent)
-    async with semaphore:
-        try:
-            async with session.get(url, timeout=10) as response:
-                html = await response.text()
-                return html
-        except Exception as err:
-            tb = traceback.extract_tb(err.__traceback__)
-            line_number = tb[-1].lineno
-            print(f"Exception: {err} at line {line_number}")
-            return None
+async def fetch(session: aiohttp.ClientSession, url: str) -> str:
+    try:
+        async with session.get(url) as response:
+            if response.status != 200:
+                print(f"Error: response: {response.status} for {url}")
+                return None
+            html = await response.text()
+            return html
+    except TimeoutError as err:
+        print(f"TimeoutError: {err}")
+        return None
+    except aiohttp.ClientError as err:
+        print(f"ClientError: {err}")
+        return None
+    except Exception as err:
+        print(f"Exception: {err}")
+        return None
 
 class CheckRobotsTxt:
     def __init__(self):
@@ -168,9 +173,24 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
     user_agent = headers["User-Agent"]
 
     ssl_context = ssl.create_default_context(cafile=certifi.where())
-    connector = aiohttp.TCPConnector(ssl=ssl_context, limit=100)
 
-    async with aiohttp.ClientSession(headers=headers, connector=connector, timeout=timeout) as session:
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrent,
+        limit_per_host=max_concurrent,
+        ttl_dns_cache=300, # DNS cache for 5 minutes
+        enable_cleanup_closed=True,
+        ssl=ssl_context
+        )
+
+    session = aiohttp.ClientSession(
+        headers=headers,
+        connector=connector,
+        timeout=timeout,
+        auto_decompress=True,
+        raise_for_status=False # Avoid exception overhead
+    )
+
+    async with session:
         while queue and crawled_count < max_pages and depth <= max_depth:
             try:
                 url = await queue.get()
@@ -183,16 +203,11 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                     queue.task_done()
                     break
 
-                start = time.perf_counter()
                 respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
-                end = time.perf_counter()
-
-                elapsed = end - start
-                print(f"Elapsed for can_fetch: {elapsed*1000} miliseconds")
 
                 if respect_robot_policy:
                     start = time.perf_counter()
-                    html = await fetch(session, url, max_concurrent)
+                    html = await fetch(session, url)
                     end = time.perf_counter()
 
                     elapsed = end - start
