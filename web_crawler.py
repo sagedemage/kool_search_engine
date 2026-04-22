@@ -152,16 +152,14 @@ def intelligently_get_website_description(html_content: str):
 
     return description
 
-async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int, check_robots_txt: CheckRobotsTxt):
+async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUrl], max_concurrent: int, headers: dict[str, str], depth: int, check_robots_txt: CheckRobotsTxt, worker_id: int):
     max_pages=50
     crawled_count = 0
     request_timeout = 10
     max_depth = 3
 
     timeout = aiohttp.ClientTimeout(
-            total=request_timeout,
-            connect=request_timeout,
-            sock_read=request_timeout
+        total=request_timeout
         )
 
     user_agent = headers["User-Agent"]
@@ -170,8 +168,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
 
     connector = aiohttp.TCPConnector(
         limit=max_concurrent,
-        limit_per_host=max_concurrent,
-        ttl_dns_cache=300, # DNS cache for 5 minutes
+        ttl_dns_cache=10, # DNS cache for 10 seconds
         enable_cleanup_closed=True,
         ssl=ssl_context
         )
@@ -179,9 +176,7 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
     session = aiohttp.ClientSession(
         headers=headers,
         connector=connector,
-        timeout=timeout,
-        auto_decompress=True,
-        raise_for_status=False # Avoid exception overhead
+        timeout=timeout
     )
 
     async with session:
@@ -197,44 +192,41 @@ async def worker(queue: asyncio.Queue, visited: set, info_of_urls: list[InfoOfUr
                     queue.task_done()
                     break
 
-                respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
+                try:
+                    respect_robot_policy = await check_robots_txt.can_fetch(session, user_agent, url)
 
-                if respect_robot_policy:
-                    html = await fetch(session, url)
+                    if respect_robot_policy:
+                        html = await fetch(session, url)
 
-                    if html:
-                        visited.add(url)
+                        if html:
+                            visited.add(url)
 
-                        new_links, depth = await extract_links(html, url, depth)
-                        for link in new_links:
-                            if link not in visited:
-                                await queue.put(link)
+                            new_links, depth = await extract_links(html, url, depth)
+                            for link in new_links:
+                                if link not in visited:
+                                    await queue.put(link)
 
-                        title = await get_website_title(html)
-                        description = await get_website_description(html)
-                        info_of_url = InfoOfUrl(url, html, title, description)
-                        info_of_urls.append(info_of_url)
+                            title = await get_website_title(html)
+                            description = await get_website_description(html)
+                            info_of_url = InfoOfUrl(url, html, title, description)
+                            info_of_urls.append(info_of_url)
 
-                        crawled_count += 1
-                else:
-                    print(f"Robot policy is not respected for {url}")
+                            crawled_count += 1
+                    else:
+                        print(f"Robot policy is not respected for {url}")
 
-                print(f"Crawled ({crawled_count}/{max_pages}): {url}")
-
-                queue.task_done()
+                    print(f"Crawled ({crawled_count}/{max_pages}): {url}")
+                except Exception as err:
+                    print(f"Exception: {err}")
+                finally:
+                    queue.task_done()
             except asyncio.CancelledError as err:
-                tb = traceback.extract_tb(err.__traceback__)
-                line_number = tb[-1].lineno
-                print(f"CancelledError: {err} at line {line_number}")
+                print(f"Worker {worker_id} cancelled")
                 break
-            except Exception as err:
-                tb = traceback.extract_tb(err.__traceback__)
-                line_number = tb[-1].lineno
-                print(f"Exception: {err} at line {line_number}")
 
 async def crawl(urls: list[str], check_robots_txt: CheckRobotsTxt) -> tuple[set, list[InfoOfUrl]]:
     max_concurrent = 10
-    total_timeout: int = 40
+    timeout = 20.0
     visited = set()
     info_of_urls = []
 
@@ -246,38 +238,31 @@ async def crawl(urls: list[str], check_robots_txt: CheckRobotsTxt) -> tuple[set,
     for start_url in urls:
         depth = 0
         async with asyncio.TaskGroup() as tg:
+            queue = asyncio.Queue()
+            await queue.put(start_url)
+
+            tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth, check_robots_txt, i))
+                     for i in range(max_concurrent)]
+
             try:
-                queue = asyncio.Queue()
-                await queue.put(start_url)
-
-                tasks = [tg.create_task(worker(queue, visited, info_of_urls, max_concurrent, headers, depth, check_robots_txt))
-                             for _ in range(max_concurrent)]
-
                 # Add a timeout to any awaitable operation
                 await asyncio.wait_for(
                     # Blocks until all items in the queue have been
                     # marked as processed via task_done()
                     queue.join(),
-                    timeout=total_timeout
+                    timeout=timeout
                 )
-
-                if len(tasks) != 0:
-                    # Handle cancellations
-                    for task in tasks:
-                        # Cancel long-running tasks and
-                        # tasks that are no longer needed
-                        task.cancel()
-
-                    await asyncio.gather(*tasks, return_exceptions=True)
-
             except asyncio.TimeoutError as err:
-                tb = traceback.extract_tb(err.__traceback__)
-                line_number = tb[-1].lineno
-                print(f"TimeoutError: {err} at line {line_number}")
-            except Exception as err:
-                tb = traceback.extract_tb(err.__traceback__)
-                line_number = tb[-1].lineno
-                print(f"Exception: {err} at line {line_number}")
+                print(f"Operation timed out after {timeout} seconds")
+            finally:
+                # Handle cancellations
+                for task in tasks:
+                    # Cancel long-running tasks and
+                    # tasks that are no longer needed
+                    task.cancel()
+
+                # Wait for workers to finish gracefully
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     return visited, info_of_urls
 
@@ -358,8 +343,6 @@ async def main():
     df.to_csv("data/extracted_urls.csv")
 
 if __name__ == "__main__":
-    loop_factory=None
     if sys.platform == 'win32':
-        import winloop
-        loop_factory=winloop.new_event_loop
-    asyncio.run(main(), loop_factory=loop_factory)
+        from winloop import run
+    run(main())
