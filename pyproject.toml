@@ -1,0 +1,28 @@
+[project]
+name = "kool_search_engine"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Salmaan Saeed"}
+]
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "aiohttp (>=3.13.5,<4.0.0)",
+    "beautifulsoup4 (>=4.14.3,<5.0.0)",
+    "lxml (>=6.1.1,<7.0.0)",
+    "pandas (>=3.0.3,<4.0.0)",
+    "certifi (>=2026.5.20,<2027.0.0)",
+    "winloop (>=0.6.3,<0.7.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
+[dependency-groups]
+dev = [
+    "deptry (>=0.25.1,<0.26.0)"
+]

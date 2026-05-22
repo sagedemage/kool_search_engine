@@ -5,7 +5,6 @@ from bs4 import BeautifulSoup
 from urllib.robotparser import RobotFileParser
 import pandas as pd
 import os
-import traceback
 import ssl
 import certifi
 import configparser
