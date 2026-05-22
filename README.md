@@ -4,12 +4,22 @@ If you hate Google search, you can always use my amazing search engine without A
 
 Install dependencies
 ```
-pipenv install
+poetry install
 ```
 
-Run program
+Run the web crawler
 ```
-pipenv run python main.py
+poetry run python web_crawler.py
+```
+
+Run the search engine program
+```
+poetry run python main.py
+```
+
+Check for dependency issues
+```
+poetry run deptry .
 ```
 
 Do not use reddit.com as a seed url. Google is the only search engine that can crawl Reddit.
